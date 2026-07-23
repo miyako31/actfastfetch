@@ -1,0 +1,13 @@
+name: Show System Info
+on:
+  workflow_dispatch:
+jobs:
+  display-info:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install fastfetch
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fastfetch
+      - name: Run fastfetch
+        run: fastfetch
