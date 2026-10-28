@@ -103,5 +103,6 @@ jobs:
           cd ..
           gh release create "fastfetch-${{ github.run_id }}" \
             fastfetch-results.zip \
+            --repo "${{ github.repository }}" \
             --title "Runner hardware check ${{ github.run_id }}" \
             --notes "Fastfetch results from all runners"
