@@ -1,0 +1,82 @@
+name: Runner hardware check (fastfetch)
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  fastfetch:
+    name: fastfetch on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-slim
+          - ubuntu-22.04
+          - ubuntu-24.04
+          - ubuntu-26.04
+          - ubuntu-22.04-arm
+          - ubuntu-24.04-arm
+          - ubuntu-26.04-arm
+          - windows-2022
+          - windows-2025
+          - windows-11-arm
+          - windows-11-vs2026-arm
+          - macos-14
+          - macos-15
+          - macos-26
+          - xcode-27
+          - macos-15-intel
+          - macos-26-intel
+
+    steps:
+      - name: Runner context (OS / architecture / image version)
+        shell: bash
+        run: |
+          echo "runner.os=${RUNNER_OS}"
+          echo "runner.arch=${RUNNER_ARCH}"
+          echo "image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
+
+      - name: Install and run fastfetch (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euxo pipefail
+          arch="$(dpkg --print-architecture)"
+          if [ "${arch}" = "arm64" ]; then arch="aarch64"; fi
+          curl -fsSL -o /tmp/fastfetch.deb \
+            "https://github.com/fastfetch-cli/fastfetch/releases/latest/download/fastfetch-linux-${arch}.deb"
+          SUDO=""
+          if command -v sudo >/dev/null 2>&1; then SUDO="sudo"; fi
+          ${SUDO} apt-get update -y
+          ${SUDO} apt-get install -y /tmp/fastfetch.deb
+          fastfetch
+          fastfetch --pipe >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Install and run fastfetch (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euxo pipefail
+          brew install fastfetch
+          fastfetch
+          fastfetch --pipe >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Install and run fastfetch (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $assetArch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'aarch64' } else { 'amd64' }
+          $zip = Join-Path $env:RUNNER_TEMP "fastfetch.zip"
+          $dir = Join-Path $env:RUNNER_TEMP "fastfetch"
+          Invoke-WebRequest `
+            -Uri "https://github.com/fastfetch-cli/fastfetch/releases/latest/download/fastfetch-windows-$assetArch.zip" `
+            -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath $dir
+          $exe = (Get-ChildItem -Path $dir -Recurse -Filter fastfetch.exe |
+                  Select-Object -First 1).FullName
+          & $exe
+          (& $exe --pipe) | Add-Content -Path $env:GITHUB_STEP_SUMMARY
