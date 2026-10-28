@@ -1,11 +1,8 @@
 name: Runner hardware check (fastfetch)
-
 on:
   workflow_dispatch: {}
-
 permissions:
   contents: read
-
 jobs:
   fastfetch:
     name: fastfetch on ${{ matrix.os }}
@@ -32,7 +29,6 @@ jobs:
           - xcode-27
           - macos-15-intel
           - macos-26-intel
-
     steps:
       - name: Runner context (OS / architecture / image version)
         shell: bash
@@ -40,7 +36,6 @@ jobs:
           echo "runner.os=${RUNNER_OS}"
           echo "runner.arch=${RUNNER_ARCH}"
           echo "image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
-
       - name: Install and run fastfetch (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -54,16 +49,14 @@ jobs:
           ${SUDO} apt-get update -y
           ${SUDO} apt-get install -y /tmp/fastfetch.deb
           fastfetch
-          fastfetch --pipe >> "${GITHUB_STEP_SUMMARY}"
-
+          fastfetch --pipe | tee "${{ matrix.os }}.txt" >> "${GITHUB_STEP_SUMMARY}"
       - name: Install and run fastfetch (macOS)
         if: runner.os == 'macOS'
         run: |
           set -euxo pipefail
           brew install fastfetch
           fastfetch
-          fastfetch --pipe >> "${GITHUB_STEP_SUMMARY}"
-
+          fastfetch --pipe | tee "${{ matrix.os }}.txt" >> "${GITHUB_STEP_SUMMARY}"
       - name: Install and run fastfetch (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -79,4 +72,36 @@ jobs:
           $exe = (Get-ChildItem -Path $dir -Recurse -Filter fastfetch.exe |
                   Select-Object -First 1).FullName
           & $exe
-          (& $exe --pipe) | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+          $out = & $exe --pipe
+          $out | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+          $out | Out-File -FilePath "${{ matrix.os }}.txt" -Encoding utf8
+      - name: Upload fastfetch result
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}
+          path: ${{ matrix.os }}.txt
+          if-no-files-found: error
+  release:
+    name: Create release
+    needs: fastfetch
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Create zip and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          cd artifacts
+          zip -r ../fastfetch-results.zip .
+          cd ..
+          gh release create "fastfetch-${{ github.run_id }}" \
+            fastfetch-results.zip \
+            --title "Runner hardware check ${{ github.run_id }}" \
+            --notes "Fastfetch results from all runners"
